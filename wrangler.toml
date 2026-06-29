@@ -1,0 +1,45 @@
+name = "muckers"
+main = "src/index.ts"
+compatibility_date = "2026-06-28"
+compatibility_flags = ["nodejs_compat"]
+
+# Deploy to your own Cloudflare account:
+# https://deploy.workers.cloudflare.com/?url=https://github.com/NorthwoodsSentinel/muckers
+
+[vars]
+# Change this BEFORE going to production. Generate a fresh token: openssl rand -hex 32
+PACK_TOKEN = "CHANGE-ME-RUN-openssl-rand-hex-32"
+
+# D1 — Cloudflare will create one for you on Deploy Button install. After deploy, run:
+#   wrangler d1 migrations apply muckers --remote
+[[d1_databases]]
+binding = "DB"
+database_name = "muckers"
+database_id = "REPLACED_BY_DEPLOY_OR_FILLED_MANUALLY"
+migrations_dir = "migrations"
+
+# KV — Cloudflare creates on Deploy Button install. Holds the cron-config for the digest.
+[[kv_namespaces]]
+binding = "PREFS"
+id = "REPLACED_BY_DEPLOY_OR_FILLED_MANUALLY"
+
+# Workers AI — no provisioning needed, binding is implicit per-account.
+# Used by digest as fallback when ANTHROPIC_API_KEY is not set.
+[ai]
+binding = "AI"
+
+# Cron trigger for the digest module. Default: daily at 12:00 UTC
+# (7:00 AM CT / 5:00 AM PT). Edit this to match your timezone.
+# The cron is a no-op until the operator configures the digest spec
+# via KV key "digest:cron_config" — see Workflows/InstallToolkit.md
+[triggers]
+crons = ["0 12 * * *"]
+
+# Secrets used by the toolkit (set via `wrangler secret put NAME`):
+#   ANTHROPIC_API_KEY        — required by organizer + recommended for digest
+#                              (digest falls back to Workers AI if absent;
+#                              organizer requires Anthropic for semantic shape detection)
+#   GITHUB_DIGEST_PAT        — required if any digest source.type = "github"
+#   DISCORD_BOT_TOKEN        — required if any digest source.type = "discord_channel" w/ default secret name
+#   DISCORD_DIGEST_WEBHOOK   — optional; fallback for delivery_target.type = "discord_webhook"
+#   NTFY_DIGEST_TOPIC        — optional; fallback for delivery_target.type = "ntfy"

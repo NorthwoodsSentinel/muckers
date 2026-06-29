@@ -1,0 +1,25 @@
+{
+  "name": "muckers",
+  "version": "0.1.0",
+  "description": "Edison-shaped substrate for operators who run a many-agent fleet and need the operational discipline that 14 lab assistants gave Edison. Five primitives: digest, organizer, STANDING_RULES, AGENDA, dual-mode.",
+  "private": false,
+  "type": "module",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NorthwoodsSentinel/muckers"
+  },
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "types": "wrangler types",
+    "migrate:remote": "wrangler d1 migrations apply muckers --remote",
+    "migrate:local": "wrangler d1 migrations apply muckers --local"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260601.0",
+    "typescript": "^5.5.0",
+    "wrangler": "^4.0.0"
+  }
+}
