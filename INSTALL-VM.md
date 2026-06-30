@@ -1,120 +1,224 @@
 # INSTALL-VM.md — muckers on a Linux VM (Proxmox, vanilla, anything POSIX)
 
-For users running muckers outside Cloudflare's runtime — own VM, own Proxmox host, own dedicated box. Companion to `INSTALL.md` (which covers the cleanest path: file-based primitives on top of Cloudflare Workers + Claude Code + PAI).
+For users running muckers outside Cloudflare's hosted runtime — own VM, own Proxmox host, own dedicated box. Companion to `INSTALL.md` (the cleanest path, on top of Cloudflare Workers + Claude Code + PAI).
+
+This doc is sequenced for the **cloud-bridge learning path** — you want to understand how the Cloudflare-shape stack actually runs, and you want to run it on your own iron. Phase 1 stands up the synthesis primitives (`digest` + `organizer`) on `workerd` + MinIO + SQLite on your VM. Phase 2 layers the state-management file primitives on top.
 
 ---
 
 ## TL;DR
 
-muckers has five primitives. **Three are pure files that install in roughly 15 minutes on top of an existing Claude Code + PAI install** — no VM, no adapter, no model-cost question. They are the state-management half of the toolkit: STANDING_RULES.md, AGENDA.md, DualMode skill. Install those first via the steps in `INSTALL.md` — they ship the same on any host, including the VM you stood up.
+If your goal is cloud-bridge knowledge — you're learning the Cloudflare Workers runtime, you want to understand how D1/KV/R2 bindings actually work, you'd rather run it on iron you control — start with **Phase 1**. The `digest` and `organizer` Workers run on Cloudflare's open-source `workerd` runtime. MinIO replaces R2 for object storage. SQLite replaces D1. A small AI-dispatch helper switches between Anthropic API and a local Ollama model based on whether you want cloud spend or local sovereignty.
 
-The other two primitives — **digest** and **organizer** — are synthesis-output tools. They originally targeted Cloudflare Workers + AI Gateway. On your own VM, both run on Cloudflare's open-source `workerd` runtime + miniflare-style local SQLite/file bindings, plus a small AI-dispatch helper that lets you choose between the Anthropic API or a local Ollama model. Plan for those is **Phase 2** below.
-
-The order matters. Install the file primitives first.
+If your goal is faster everyday productivity wins on an existing Claude Code + PAI install, **Phase 2** (state-management file primitives — STANDING_RULES + AGENDA + DualMode) drops in cleanly without any VM work. Most users hit those first. You can install Phase 2 whenever; it's not gated by Phase 1.
 
 ---
 
-## Why install file primitives first, even if digest is what brought you here
+## Phase 1 — workerd + MinIO + digest worker on your VM
 
-A common entry-point assumption is that digest is the most approachable primitive — synthesis is concrete and visible, so it feels like the natural starting point. After running the full toolkit through real-use friction for a couple of months, the recommendation is the opposite: **the tax most users name is in state management, not synthesis.**
+### What you're standing up
 
-The three phrases that show up repeatedly in user-friction reports:
+The architecture under the muckers `digest` and `organizer` workers is the standard Cloudflare Workers shape: a Worker script that uses bindings to D1 (SQLite), KV (key-value store), R2 (S3-compatible object storage), and optionally calls the Workers AI gateway. To run that locally, four pieces compose:
 
-- **"guru syndrome"** — jumping between productivity systems, re-teaching each one your conventions
-- **"chasing one for doing work"** — running after the productivity AI to make it cooperate instead of having work flow naturally
-- **"journaling to prioritize"** — manually re-deriving what's important each session because last session's state didn't survive
+`workerd` is Cloudflare's open-source Workers runtime — the same C++ binary that runs production Workers, packaged as a long-running POSIX service. It reads a config file declaring your Worker script + bindings.
 
-Mapping each phrase to a primitive:
+`miniflare`-style local bindings provide the D1 / KV / R2 surfaces. For development and small production you can use SQLite for D1, a file-backed directory for KV, and a local filesystem path for R2.
 
-- **STANDING_RULES.md** addresses the guru syndrome. Corrections you give an agent land once, persist across all sessions, and the agent treats them as constitutional. You stop re-teaching the same lessons across new chats.
-- **AGENDA.md** addresses the journaling-to-prioritize tax. Cross-session ticket store with priority tiers. Items survive sessions; you don't re-derive priorities; the system surfaces critical/high items at the right cadence without burying you in everything.
-- **DualMode skill** addresses the chasing-one. Lets you parallel-track work with two agents at once — one keeps you in flow, the other handles cleanup/triage in the background and exits with only the items that need your input.
+For real R2 substitution at scale on your VM, `MinIO` is the production-grade S3-compatible alternative — runs in a container, exposes the same API surface R2 exposes, no code changes to the Worker.
 
-Digest is real value, and you'll likely want it once the state-management layer is wired. But digest is an output stage; the file primitives are the input stage. Adding faster output to a pipeline whose input is still manual produces less value than wiring the input first.
-
-If after installing the three you decide your friction was elsewhere — your call, override the recommendation. The file primitives are zero-cost to install (`rm` undoes them); the digest VM is a real build, so getting the order right matters more.
-
----
-
-## Phase 1 — Three file primitives
-
-These install on whichever host runs your `~/.claude/` directory — usually your laptop or workstation, not the VM itself unless your VM is also your Claude Code host. **No VM-specific steps in this phase.** Follow the steps in `INSTALL.md` (Steps 1-3). Summary:
-
-1. Clone the muckers repo (`git clone https://github.com/NorthwoodsSentinel/muckers.git`)
-2. Copy `templates/STANDING_RULES.template.md` to `~/.claude/PAI/USER/STANDING_RULES.md` and ensure `@PAI/USER/STANDING_RULES.md` is in your `~/.claude/CLAUDE.md` imports
-3. Copy `templates/AGENDA.template.md` to your project dir under `~/.claude/projects/<your-project-slug>/AGENDA.md`
-4. Copy `skills/DualMode/` into `~/.claude/skills/DualMode/`
-
-Open a fresh Claude Code session in your project dir to verify: ask *"what rules are loaded for me?"* (verifies STANDING_RULES @-import). File a test agenda ticket; close the session; reopen; ticket should still be there (verifies cross-session persistence). DualMode auto-activates on parallel-tracked work — try *"enter Dual Mode"* in a real session to verify the skill loads.
-
----
-
-## Phase 2 — digest (and later organizer) via workerd on your VM
-
-This is the actual VM piece: running muckers' synthesis primitives independently of Cloudflare's paid plan, on a Linux VM you control.
+The AI-dispatch helper is a small TypeScript file (~30 LOC) that the Worker calls instead of the Workers AI binding. It reads an env var and routes the call to either the Anthropic API or a local Ollama endpoint. Switching is one env var change, no code redeploy.
 
 ### Architecture sketch
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ Linux VM (Debian 12 / Ubuntu 22.04 / similar)                    │
-│                                                                  │
-│   workerd (systemd unit, always-on)                              │
-│   └─ executes muckers digest.js (CF Worker source, unchanged)    │
-│                                                                  │
-│   miniflare-style bindings (via workerd config):                 │
-│   ├─ D1   → SQLite file on local disk                            │
-│   ├─ KV   → JSON files                                           │
-│   └─ R2   → directory tree                                       │
-│                                                                  │
-│   AI dispatch helper (~30 LOC):                                  │
-│   ├─ Anthropic API (your key, pennies per digest)                │
-│   └─ OR local Ollama (your GPU, full sovereignty)                │
-│                                                                  │
-│   cron (host-level) → curls workerd /digest endpoint             │
-│                       on schedule (e.g. daily 06:00)             │
+│ Proxmox VE host                                                  │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │ Linux VM (Debian 12 or Ubuntu 22.04)                       │  │
+│  │                                                            │  │
+│  │   workerd (systemd unit, always-on)                        │  │
+│  │   └─ runs muckers digest.ts + organizer.ts unchanged       │  │
+│  │                                                            │  │
+│  │   Bindings (via workerd config):                           │  │
+│  │   ├─ D1   → SQLite file at /var/lib/muckers/db.sqlite      │  │
+│  │   ├─ KV   → directory at /var/lib/muckers/kv/              │  │
+│  │   └─ R2   → MinIO at http://localhost:9000 (S3 API)        │  │
+│  │                                                            │  │
+│  │   AI dispatch helper (~30 LOC):                            │  │
+│  │   ├─ DIGEST_MODEL_BACKEND=anthropic → Claude Haiku via API │  │
+│  │   └─ DIGEST_MODEL_BACKEND=ollama    → local Ollama (16GB+) │  │
+│  │                                                            │  │
+│  │   MinIO (docker container):                                │  │
+│  │   └─ S3-compatible object store, bucket = muckers-archive  │  │
+│  │                                                            │  │
+│  │   cron (host) → daily curl to workerd /digest endpoint     │  │
+│  └────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-### Model-backend choice
+### Install steps
 
-Two clean options; pick whichever matches the cost-vs-sovereignty profile you want:
+The steps assume Debian 12 or Ubuntu 22.04 on the VM with root or sudo access.
 
-**A. Cloud (Anthropic API).** A daily digest of roughly 50 source items into a ~500-word synthesis runs on Claude Haiku 4.5 at roughly $0.005–0.01 per digest. ~$0.30/month at daily cadence. Trivial cost. No GPU load. Requires an Anthropic API key in environment.
+**1. Install workerd.** Follow the [workerd README](https://github.com/cloudflare/workerd) — the binary is available via npm (`npm install -g workerd`) or as a prebuilt release download. Verify with `workerd --version`.
 
-**B. Local (Ollama).** A 13B-class model (Llama 3.3 13B, Qwen 2.5 14B, Mistral Nemo) fits in ~12-16 GB VRAM with usable context. Synthesis quality is below Sonnet but acceptable for digest. Zero cloud spend; full sovereignty. Adds 3-15 seconds per digest depending on model and quantization.
+**2. Stand up MinIO via Docker.** The container is the cleanest production-grade local S3 surface:
 
-The AI dispatch helper switches between the two via an env var:
-
+```bash
+docker run -d --name minio \
+  -p 9000:9000 -p 9001:9001 \
+  -v /var/lib/minio:/data \
+  -e "MINIO_ROOT_USER=muckers-admin" \
+  -e "MINIO_ROOT_PASSWORD=<choose-strong>" \
+  minio/minio server /data --console-address ":9001"
 ```
-DIGEST_MODEL_BACKEND=anthropic   # or "ollama"
+
+Visit `http://localhost:9001` to access the console. Create a bucket named `muckers-archive`. Generate an access key + secret under Identity → Service Accounts; you'll wire those into the workerd config.
+
+**3. Set up the local filesystem.**
+
+```bash
+sudo mkdir -p /var/lib/muckers/{kv,db,logs}
+sudo chown -R $(whoami) /var/lib/muckers
 ```
 
-Five lines of switch logic; no code change needed to swap.
+**4. Clone muckers.**
 
-### What's NOT yet shipping in this doc
+```bash
+git clone https://github.com/NorthwoodsSentinel/muckers.git
+cd muckers
+```
 
-Being explicit so deferred work is visible, not pretended-resolved:
+**5. Initialize SQLite for D1.** The migrations are in `migrations/` if they exist; otherwise the Worker auto-creates the schema on first run.
 
-- **The actual workerd-on-VM adapter code is not yet in this repo.** The architecture above is honest about that. Phase 2 install steps will land in this file or a sibling once the adapter is built. Track progress at the muckers repo's open issues.
-- **organizer-on-VM** follows the same workerd-config + systemd-unit + AI-dispatch-helper pattern as digest. Ships after digest is proven.
-- **GUI / dashboard.** muckers is CLI + cron primitives by design. If you want a dashboard view, that's a separate project — probably a small static page that reads the same SQLite file via a separate Worker. Not in scope here.
+```bash
+sqlite3 /var/lib/muckers/db/muckers.sqlite < migrations/0001_init.sql  # if present
+```
 
-### Why workerd vs a custom adapter
+**6. Create the workerd config.** Save as `/etc/muckers/workerd-config.capnp` (the workerd config language is Cap'n Proto — the workerd README has worked examples). The config declares the Worker script (`src/digest.ts`), the bindings (D1 → SQLite path, KV → directory, R2 → MinIO endpoint + credentials), and the listening port.
 
-Earlier iterations of this doc speced a custom Hono-on-Node adapter (~300 LOC) for running muckers' worker source on a VM. Then `workerd` (Cloudflare's open-source Workers runtime) was the cleaner answer: same runtime that runs production Cloudflare Workers, installable on any POSIX box, with native support for the bindings muckers uses. Combined with miniflare-style local backings (SQLite for D1, file-based for KV/R2), the VM port collapses from a custom adapter to a config file + a systemd unit + a small AI-dispatch helper. Roughly 50 LOC of new code, not 300.
+**7. Install the AI-dispatch helper.** The current muckers `src/digest.ts` calls Workers AI; for VM-on-workerd you swap that call for the dispatch helper. Sketch:
+
+```typescript
+// src/ai-dispatch.ts
+export async function dispatch(prompt: string): Promise<string> {
+  const backend = process.env.DIGEST_MODEL_BACKEND ?? 'anthropic';
+  if (backend === 'ollama') {
+    return ollamaCall(prompt);  // POST http://localhost:11434/api/generate
+  }
+  return anthropicCall(prompt);  // POST https://api.anthropic.com/v1/messages
+}
+```
+
+**Model-backend tradeoff:**
+
+The Anthropic path runs Claude Haiku at roughly $0.005–0.01 per digest synthesis of ~50 input items into ~500 output words. At daily cadence that's ~$0.30/month. No GPU load on your VM. Requires `ANTHROPIC_API_KEY` in env.
+
+The Ollama path fits a 13B-class model (Llama 3.3 13B, Qwen 2.5 14B, Mistral Nemo) in roughly 12–16 GB VRAM with usable context. Quality is meaningfully below Sonnet/Haiku but acceptable for digest synthesis. Zero cloud spend, full sovereignty. Adds 3–15 seconds per digest depending on model and quantization. Install Ollama via `curl -fsSL https://ollama.com/install.sh | sh`, pull the model with `ollama pull llama3.3:13b`, set `DIGEST_MODEL_BACKEND=ollama`.
+
+Switching is one env var change. You can prototype on Anthropic to validate the loop, then swap to Ollama once you've proved the digest output is useful.
+
+**8. Create the systemd unit.** Save as `/etc/systemd/system/muckers-workerd.service`:
+
+```ini
+[Unit]
+Description=muckers workerd
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/muckers/env
+ExecStart=/usr/local/bin/workerd serve /etc/muckers/workerd-config.capnp
+Restart=on-failure
+User=muckers
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable + start:
+
+```bash
+sudo systemctl enable --now muckers-workerd
+sudo systemctl status muckers-workerd
+```
+
+**9. Wire the cron.** Daily digest at 6 AM local:
+
+```bash
+0 6 * * * curl -s http://localhost:8080/digest >> /var/lib/muckers/logs/digest.log 2>&1
+```
+
+### Verify
+
+```bash
+# workerd is up
+curl http://localhost:8080/health
+
+# digest endpoint produces a synthesis (use a test signal set)
+curl -X POST http://localhost:8080/digest -d '{"signals": [...]}'
+
+# MinIO got the archived digest
+mc ls minio/muckers-archive   # requires mc CLI configured
+```
+
+### What's NOT yet shipped
+
+The workerd-on-VM adapter code — the specific config file + AI-dispatch helper port — isn't in the muckers repo yet at first publication. The architecture above is honest about that. Track progress at [github.com/NorthwoodsSentinel/muckers/issues](https://github.com/NorthwoodsSentinel/muckers/issues). When the adapter lands, it'll be a sibling directory `vm/` with the workerd config template + dispatch helper, drop-in installable on top of these instructions.
+
+The `organizer` Worker follows the same pattern as `digest` (workerd config + dispatch helper + cron). Once `digest` is proven on your stack, `organizer` is small additional config.
+
+A web GUI / dashboard is out of scope here. muckers is CLI + cron primitives by design. If you want a dashboard, build a separate small static page that reads the same SQLite file via a sibling Worker.
 
 ---
 
-## Where to take questions or report friction
+## Phase 2 — File primitives (state-management layer)
 
-- **GitHub issues:** `https://github.com/NorthwoodsSentinel/muckers/issues`
-- **Pull requests welcome** for the Phase 2 adapter scaffold, model-dispatch helper improvements, or any of the deferred work above.
+Three pure files that install on top of an existing Claude Code + PAI setup. No VM, no adapter, ~15 minutes. They live on whichever machine runs your `~/.claude/` directory — usually your workstation or laptop, not the VM itself unless the VM is your Claude Code host.
+
+### What they do
+
+**STANDING_RULES.md** is the agent's constitutional layer. Corrections you give the agent land once and persist across all sessions — the agent treats them as governing rules, not turn-by-turn context. You stop re-teaching the same lessons in every new chat.
+
+**AGENDA.md** is the cross-session ticket store. Each ticket carries: ID, priority (critical / high / medium / low / parked), title, what's blocked, what input is needed, default if specified. Tickets survive sessions; the agent surfaces critical and high items at session start.
+
+**DualMode skill** is the parallel-tracked work mode. When you're in deep dialogue with a different agent, you tell yours "enter Dual Mode" — it ships every queued reversible artifact, sweeps stale substrate, identifies decisions that need you, exits with only the input-needed items. Lets you keep flow on the primary thread without losing the secondary.
+
+### Install
+
+```bash
+cd ~
+git clone https://github.com/NorthwoodsSentinel/muckers.git  # if not already
+cd muckers
+
+# 1. STANDING_RULES
+mkdir -p ~/.claude/PAI/USER
+cp templates/STANDING_RULES.template.md ~/.claude/PAI/USER/STANDING_RULES.md
+grep -q '@PAI/USER/STANDING_RULES.md' ~/.claude/CLAUDE.md || echo '@PAI/USER/STANDING_RULES.md' >> ~/.claude/CLAUDE.md
+
+# 2. AGENDA
+# Drop into your active project dir under ~/.claude/projects/
+ls ~/.claude/projects/   # find your project slug
+cp templates/AGENDA.template.md ~/.claude/projects/<your-project-slug>/AGENDA.md
+
+# 3. DualMode skill
+mkdir -p ~/.claude/skills/DualMode/Workflows
+cp skills/DualMode/SKILL.md ~/.claude/skills/DualMode/SKILL.md
+cp skills/DualMode/Workflows/*.md ~/.claude/skills/DualMode/Workflows/
+```
+
+Open a fresh Claude Code session in your project dir to verify: ask *"what rules are loaded for me?"* (verifies STANDING_RULES @-import). File a test agenda ticket; close the session; reopen; ticket should still be there (verifies cross-session persistence). DualMode auto-activates on parallel-tracked work — try *"enter Dual Mode"* in a real session to verify the skill loads.
 
 ---
+
+## Where to take questions
+
+GitHub issues: [github.com/NorthwoodsSentinel/muckers/issues](https://github.com/NorthwoodsSentinel/muckers/issues) — for bugs, install friction, missing docs, feature requests.
+
+Pull requests welcome — particularly for the Phase 1 workerd adapter scaffold + AI-dispatch helper if you build it before the canonical version lands.
 
 ## Provenance
 
-The five primitives (digest / organizer / STANDING_RULES / AGENDA / DualMode) are named after Thomas Edison's *muckers* — his core team at Menlo Park (Charles Batchelor, John Kruesi, Francis Upton). Each primitive maps to one of Edison's documented lab practices. The repo's `HISTORY.md` walks through that mapping.
+The five primitives (digest / organizer / STANDING_RULES / AGENDA / DualMode) are named after Thomas Edison's *muckers* — his core team at Menlo Park (Charles Batchelor, John Kruesi, Francis Upton). Each primitive maps to a documented practice from Edison's 1880 daily journal. See `HISTORY.md` for the mapping.
 
-License: Apache 2.0. Use freely; contribute back if it helps.
+License: Apache 2.0.
