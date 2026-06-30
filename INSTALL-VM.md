@@ -191,23 +191,23 @@ cd ~
 git clone https://github.com/NorthwoodsSentinel/muckers.git  # if not already
 cd muckers
 
-# 1. STANDING_RULES
+# 1. STANDING_RULES — drop the template into your PAI user dir + @-import it
 mkdir -p ~/.claude/PAI/USER
-cp templates/STANDING_RULES.template.md ~/.claude/PAI/USER/STANDING_RULES.md
+cp templates/STANDING_RULES.md ~/.claude/PAI/USER/STANDING_RULES.md
 grep -q '@PAI/USER/STANDING_RULES.md' ~/.claude/CLAUDE.md || echo '@PAI/USER/STANDING_RULES.md' >> ~/.claude/CLAUDE.md
 
-# 2. AGENDA
-# Drop into your active project dir under ~/.claude/projects/
+# 2. AGENDA — drop into your active project dir under ~/.claude/projects/
 ls ~/.claude/projects/   # find your project slug
-cp templates/AGENDA.template.md ~/.claude/projects/<your-project-slug>/AGENDA.md
+cp templates/AGENDA.md ~/.claude/projects/<your-project-slug>/AGENDA.md
 
-# 3. DualMode skill
-mkdir -p ~/.claude/skills/DualMode/Workflows
-cp skills/DualMode/SKILL.md ~/.claude/skills/DualMode/SKILL.md
-cp skills/DualMode/Workflows/*.md ~/.claude/skills/DualMode/Workflows/
+# 3. DualMode — primitive description (not a skill package)
+# Read templates/DUALMODE.md and add its trigger phrase + behavior contract
+# to your STANDING_RULES.md. DualMode is a behavioral contract, not a discrete
+# Skill() call. The file documents how to install + customize.
+cat templates/DUALMODE.md   # read it, then incorporate into your standing rules
 ```
 
-Open a fresh Claude Code session in your project dir to verify: ask *"what rules are loaded for me?"* (verifies STANDING_RULES @-import). File a test agenda ticket; close the session; reopen; ticket should still be there (verifies cross-session persistence). DualMode auto-activates on parallel-tracked work — try *"enter Dual Mode"* in a real session to verify the skill loads.
+Open a fresh Claude Code session in your project dir to verify: ask *"what rules are loaded for me?"* (verifies STANDING_RULES @-import). File a test agenda ticket; close the session; reopen; ticket should still be there (verifies cross-session persistence). For DualMode: in a parallel-tracked work moment, say *"enter dual mode"* — your agent should adopt the behavior contract per the rules you installed.
 
 ---
 
