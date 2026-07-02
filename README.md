@@ -16,6 +16,8 @@ That journal is preserved in the Edison Papers archive. The toolkit's `digest` e
 
 **Read [HISTORY.md](HISTORY.md) for the full mapping** — who the muckers were, what was in the notebooks, why each primitive earned its place.
 
+**Read [PRINCIPLES.md](PRINCIPLES.md) for what the toolkit surfaces once operators run it against their own work** — four principles named so far, each observed in the wild before being written down.
+
 ---
 
 ## What's in here
