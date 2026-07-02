@@ -18,6 +18,8 @@ That journal is preserved in the Edison Papers archive. The toolkit's `digest` e
 
 **Read [PRINCIPLES.md](PRINCIPLES.md) for what the toolkit surfaces once operators run it against their own work** — four principles named so far, each observed in the wild before being written down.
 
+**See [ARCHITECTURE.md](ARCHITECTURE.md) for the composition map** — visual showing how Menlo Park practices anchor muckers primitives, and how primitives attune with the principles.
+
 ---
 
 ## What's in here
