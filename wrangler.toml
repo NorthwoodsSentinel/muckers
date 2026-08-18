@@ -43,3 +43,8 @@ crons = ["0 12 * * *"]
 #   DISCORD_BOT_TOKEN        — required if any digest source.type = "discord_channel" w/ default secret name
 #   DISCORD_DIGEST_WEBHOOK   — optional; fallback for delivery_target.type = "discord_webhook"
 #   NTFY_DIGEST_TOPIC        — optional; fallback for delivery_target.type = "ntfy"
+
+# Explicit so a redeploy can never dark this worker (T-265, 2026-08-18): Workers Logs on, full sampling.
+[observability]
+enabled = true
+head_sampling_rate = 1
