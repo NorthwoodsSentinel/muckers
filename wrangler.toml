@@ -6,9 +6,12 @@ compatibility_flags = ["nodejs_compat"]
 # Deploy to your own Cloudflare account:
 # https://deploy.workers.cloudflare.com/?url=https://github.com/NorthwoodsSentinel/muckers
 
-[vars]
-# Change this BEFORE going to production. Generate a fresh token: openssl rand -hex 32
-PACK_TOKEN = "CHANGE-ME-RUN-openssl-rand-hex-32"
+# PACK_TOKEN is a secret, never a [vars] entry. Before first deploy:
+#   openssl rand -hex 32 | wrangler secret put PACK_TOKEN
+# Deploy refuses to proceed without it; the worker also answers 503 to every
+# protected route if it is missing, shorter than 32 characters, or a CHANGE-ME placeholder.
+[secrets]
+required = ["PACK_TOKEN"]
 
 # D1 — Cloudflare will create one for you on Deploy Button install. After deploy, run:
 #   wrangler d1 migrations apply muckers --remote
