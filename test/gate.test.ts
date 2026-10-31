@@ -12,7 +12,6 @@ import { tokenMatches, type Env } from "../src/common";
 // Bun lacks the Workers-only crypto.subtle.timingSafeEqual; supply node's for the suite.
 // The gate itself never falls back to a JS comparison (see the fail-closed case below).
 const subtle = crypto.subtle as SubtleCrypto & { timingSafeEqual?: (a: ArrayBufferView, b: ArrayBufferView) => boolean };
-const nativeTimingSafeEqual = subtle.timingSafeEqual;
 subtle.timingSafeEqual = (a, b) => timingSafeEqual(a, b);
 
 const S = "0123456789abcdef0123456789abcdef";
@@ -223,9 +222,8 @@ describe("PACK_TOKEN gate (Codex adversarial cases)", () => {
   // Not a Codex case: Codex audit of f2be157 (MEDIUM) required no JS-loop fallback.
   test("29: runtime without timingSafeEqual fails closed", async () => {
     const polyfill = subtle.timingSafeEqual;
-    subtle.timingSafeEqual = nativeTimingSafeEqual;
+    subtle.timingSafeEqual = undefined;
     try {
-      if (typeof subtle.timingSafeEqual === "function") return; // real Workers runtime
       expect(await tokenMatches(S, S)).toBe(false);
     } finally {
       subtle.timingSafeEqual = polyfill;
