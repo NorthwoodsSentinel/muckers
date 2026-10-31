@@ -17,7 +17,16 @@
  * muckers toolkit — see HISTORY.md for why it's named after Edison's team.
  */
 
-import { corsHeaders, json, unauthorized, notFound, Env } from "./common";
+import {
+  corsHeaders,
+  json,
+  unauthorized,
+  notFound,
+  notConfigured,
+  packTokenUsable,
+  tokenMatches,
+  Env,
+} from "./common";
 import {
   handleDigestRun,
   handleDigestLatest,
@@ -96,8 +105,9 @@ export default {
     if (method === "GET" && path === "/digest/schema") return await handleDigestSchema(request);
     if (method === "GET" && path === "/organizer/schema") return await handleOrganizerSchema(request);
 
+    if (!packTokenUsable(env.PACK_TOKEN)) return notConfigured();
     const token = request.headers.get("X-Pack-Token");
-    if (!token || token !== env.PACK_TOKEN) {
+    if (!token || !(await tokenMatches(token, env.PACK_TOKEN))) {
       return unauthorized();
     }
 

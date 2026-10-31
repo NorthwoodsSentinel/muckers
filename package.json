@@ -15,7 +15,8 @@
     "tail": "wrangler tail",
     "types": "wrangler types",
     "migrate:remote": "wrangler d1 migrations apply muckers --remote",
-    "migrate:local": "wrangler d1 migrations apply muckers --local"
+    "migrate:local": "wrangler d1 migrations apply muckers --local",
+    "test": "bun test"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260601.0",
