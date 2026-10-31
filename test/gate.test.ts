@@ -5,8 +5,15 @@
  * kept verbatim in intent and expectation; only the harness around them is ours.
  */
 import { describe, expect, test } from "bun:test";
+import { timingSafeEqual } from "node:crypto";
 import worker from "../src/index";
-import type { Env } from "../src/common";
+import { tokenMatches, type Env } from "../src/common";
+
+// Bun lacks the Workers-only crypto.subtle.timingSafeEqual; supply node's for the suite.
+// The gate itself never falls back to a JS comparison (see the fail-closed case below).
+const subtle = crypto.subtle as SubtleCrypto & { timingSafeEqual?: (a: ArrayBufferView, b: ArrayBufferView) => boolean };
+const nativeTimingSafeEqual = subtle.timingSafeEqual;
+subtle.timingSafeEqual = (a, b) => timingSafeEqual(a, b);
 
 const S = "0123456789abcdef0123456789abcdef";
 const BASE = "https://muckers.test";
@@ -211,6 +218,18 @@ describe("PACK_TOKEN gate (Codex adversarial cases)", () => {
     const t = "é".repeat(32);
     const r = await call(t, "GET", "/digest/latest", [["X-Pack-Token", t]]);
     expect(passedGate(r.status)).toBe(true);
+  });
+
+  // Not a Codex case: Codex audit of f2be157 (MEDIUM) required no JS-loop fallback.
+  test("29: runtime without timingSafeEqual fails closed", async () => {
+    const polyfill = subtle.timingSafeEqual;
+    subtle.timingSafeEqual = nativeTimingSafeEqual;
+    try {
+      if (typeof subtle.timingSafeEqual === "function") return; // real Workers runtime
+      expect(await tokenMatches(S, S)).toBe(false);
+    } finally {
+      subtle.timingSafeEqual = polyfill;
+    }
   });
 
   test("28: oversized header never reaches a protected handler -> 401", async () => {

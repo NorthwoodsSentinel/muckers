@@ -52,10 +52,13 @@ async function sha256(value: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
 }
 
-/** Constant-time comparison: both sides are hashed to 32 bytes first, so length never leaks. */
+/**
+ * Constant-time comparison via the runtime's crypto.subtle.timingSafeEqual (Workers).
+ * Both sides are hashed to 32 bytes first, so length never leaks. A runtime without
+ * timingSafeEqual fails closed rather than falling back to a JS loop the JIT could shortcut.
+ */
 export async function tokenMatches(presented: string, configured: string): Promise<boolean> {
   const [a, b] = await Promise.all([sha256(presented), sha256(configured)]);
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a[i]! ^ b[i]!;
-  return diff === 0;
+  if (typeof crypto.subtle.timingSafeEqual !== "function") return false;
+  return crypto.subtle.timingSafeEqual(a, b);
 }
