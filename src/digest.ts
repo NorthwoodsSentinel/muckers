@@ -77,10 +77,7 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-async function readGitHub(
-  cfg: Record<string, unknown>,
-  env: Env,
-): Promise<SourceReadResult> {
+async function readGitHub(cfg: Record<string, unknown>, env: Env): Promise<SourceReadResult> {
   const repos = Array.isArray(cfg.repos) ? (cfg.repos as string[]) : [];
   const sinceHours = typeof cfg.since_hours === "number" ? cfg.since_hours : 24;
   const sinceDate = new Date(Date.now() - sinceHours * 60 * 60 * 1000).toISOString();
@@ -98,16 +95,13 @@ async function readGitHub(
 
   for (const repo of repos) {
     try {
-      const res = await fetch(
-        `https://api.github.com/repos/${repo}/commits?since=${sinceDate}&per_page=20`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "User-Agent": "muckers/digest",
-            Accept: "application/vnd.github+json",
-          },
+      const res = await fetch(`https://api.github.com/repos/${repo}/commits?since=${sinceDate}&per_page=20`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "User-Agent": "muckers/digest",
+          Accept: "application/vnd.github+json",
         },
-      );
+      });
       if (!res.ok) {
         items.push({
           ts: nowIso(),
@@ -144,10 +138,7 @@ async function readGitHub(
   };
 }
 
-async function readDiscordChannel(
-  cfg: Record<string, unknown>,
-  env: Env,
-): Promise<SourceReadResult> {
+async function readDiscordChannel(cfg: Record<string, unknown>, env: Env): Promise<SourceReadResult> {
   const channelId = String(cfg.channel_id ?? "");
   const sinceHours = typeof cfg.since_hours === "number" ? cfg.since_hours : 24;
   const tokenSecret = String(cfg.bot_token_secret ?? "DISCORD_BOT_TOKEN");
@@ -163,10 +154,9 @@ async function readDiscordChannel(
   }
 
   try {
-    const res = await fetch(
-      `https://discord.com/api/v10/channels/${channelId}/messages?limit=50`,
-      { headers: { Authorization: `Bot ${token}` } },
-    );
+    const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages?limit=50`, {
+      headers: { Authorization: `Bot ${token}` },
+    });
     if (!res.ok) {
       return {
         source_type: "discord_channel",
@@ -204,9 +194,7 @@ async function readDiscordChannel(
   }
 }
 
-async function readManualNote(
-  cfg: Record<string, unknown>,
-): Promise<SourceReadResult> {
+async function readManualNote(cfg: Record<string, unknown>): Promise<SourceReadResult> {
   const text = String(cfg.text ?? "");
   return {
     source_type: "manual_note",
@@ -215,16 +203,12 @@ async function readManualNote(
   };
 }
 
-async function readSources(
-  sources: SourceConfig[],
-  env: Env,
-): Promise<SourceReadResult[]> {
+async function readSources(sources: SourceConfig[], env: Env): Promise<SourceReadResult[]> {
   const out: SourceReadResult[] = [];
   for (const s of sources) {
     try {
       if (s.type === "github") out.push(await readGitHub(s.config, env));
-      else if (s.type === "discord_channel")
-        out.push(await readDiscordChannel(s.config, env));
+      else if (s.type === "discord_channel") out.push(await readDiscordChannel(s.config, env));
       else if (s.type === "manual_note") out.push(await readManualNote(s.config));
       else
         out.push({
@@ -308,13 +292,16 @@ async function synthesizeWithWorkersAi(
     )
     .join("\n");
 
-  const result = (await env.AI.run("@cf/meta/llama-3.1-8b-instruct" as never, {
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: rawPacked || "(no source items)" },
-    ],
-    max_tokens: 1200,
-  } as never)) as { response?: string };
+  const result = (await env.AI.run(
+    "@cf/meta/llama-3.1-8b-instruct" as never,
+    {
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: rawPacked || "(no source items)" },
+      ],
+      max_tokens: 1200,
+    } as never,
+  )) as { response?: string };
   return (result.response ?? "").trim();
 }
 
@@ -406,8 +393,8 @@ async function runDigest(
     .bind(run_id, req.triggered_by, started_at, JSON.stringify(req.sources))
     .run();
 
-  let digestText = "";
-  let deliveryResults: { target: string; ok: boolean; err?: string }[] = [];
+  let digestText: string;
+  let deliveryResults: { target: string; ok: boolean; err?: string }[];
   try {
     const raw = await readSources(req.sources, env);
     const useAnthropic = req.model_pref !== "workers_ai" && env.ANTHROPIC_API_KEY;
@@ -419,18 +406,10 @@ async function runDigest(
     await env.DB.prepare(
       `UPDATE digest_runs SET completed_at = ?, status = 'done', digest_text = ?, delivery_targets_json = ?, delivery_results_json = ? WHERE id = ?`,
     )
-      .bind(
-        nowIso(),
-        digestText,
-        JSON.stringify(req.delivery_targets),
-        JSON.stringify(deliveryResults),
-        run_id,
-      )
+      .bind(nowIso(), digestText, JSON.stringify(req.delivery_targets), JSON.stringify(deliveryResults), run_id)
       .run();
   } catch (err) {
-    await env.DB.prepare(
-      `UPDATE digest_runs SET completed_at = ?, status = 'failed', failure_reason = ? WHERE id = ?`,
-    )
+    await env.DB.prepare(`UPDATE digest_runs SET completed_at = ?, status = 'failed', failure_reason = ? WHERE id = ?`)
       .bind(nowIso(), String(err), run_id)
       .run();
     throw err;
@@ -444,16 +423,10 @@ async function runDigest(
 export async function handleDigestRun(req: Request, env: Env): Promise<Response> {
   const body = (await req.json().catch(() => ({}))) as Partial<DigestRequest>;
   if (!Array.isArray(body.sources) || body.sources.length === 0) {
-    return json(
-      { error: "sources[] required; see /digest/schema for shape" },
-      400,
-    );
+    return json({ error: "sources[] required; see /digest/schema for shape" }, 400);
   }
   if (!Array.isArray(body.delivery_targets) || body.delivery_targets.length === 0) {
-    return json(
-      { error: "delivery_targets[] required; see /digest/schema for shape" },
-      400,
-    );
+    return json({ error: "delivery_targets[] required; see /digest/schema for shape" }, 400);
   }
   try {
     const result = await runDigest(
@@ -489,7 +462,7 @@ export async function handleDigestList(_req: Request, env: Env): Promise<Respons
   return json({ ok: true, runs: result.results });
 }
 
-export async function handleDigestSchema(_req: Request): Promise<Response> {
+export async function handleDigestSchema(): Promise<Response> {
   return json({
     ok: true,
     endpoints: {
@@ -514,10 +487,16 @@ export async function handleDigestSchema(_req: Request): Promise<Response> {
       file_mtime: { status: "not_yet_implemented", note: "Workers can't read host filesystem" },
     },
     delivery_targets: {
-      discord_webhook: { config: { url: "https://discord.com/api/webhooks/..." }, fallback_secret: "DISCORD_DIGEST_WEBHOOK" },
+      discord_webhook: {
+        config: { url: "https://discord.com/api/webhooks/..." },
+        fallback_secret: "DISCORD_DIGEST_WEBHOOK",
+      },
       ntfy: { config: { topic: "your-topic" }, fallback_secret: "NTFY_DIGEST_TOPIC" },
       substrate: { config: { tag: "digest-morning" }, note: "stores in northwoods-pack substrate D1" },
-      file: { config: { path: "/path/intent-marker" }, note: "stored as marker; pull via /digest/latest from external job" },
+      file: {
+        config: { path: "/path/intent-marker" },
+        note: "stored as marker; pull via /digest/latest from external job",
+      },
     },
   });
 }

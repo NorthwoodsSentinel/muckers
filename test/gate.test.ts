@@ -4,14 +4,16 @@
  * Cases 1–28 were written by Codex (design review, NOR-155, 2026-10-31) and are
  * kept verbatim in intent and expectation; only the harness around them is ours.
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { timingSafeEqual } from "node:crypto";
 import worker from "../src/index";
 import { tokenMatches, type Env } from "../src/common";
 
-// Bun lacks the Workers-only crypto.subtle.timingSafeEqual; supply node's for the suite.
+// Node lacks the Workers-only crypto.subtle.timingSafeEqual; supply node:crypto's for the suite.
 // The gate itself never falls back to a JS comparison (see the fail-closed case below).
-const subtle = crypto.subtle as SubtleCrypto & { timingSafeEqual?: (a: ArrayBufferView, b: ArrayBufferView) => boolean };
+const subtle = crypto.subtle as unknown as {
+  timingSafeEqual?: (a: Uint8Array, b: Uint8Array) => boolean;
+};
 subtle.timingSafeEqual = (a, b) => timingSafeEqual(a, b);
 
 const S = "0123456789abcdef0123456789abcdef";
@@ -110,15 +112,15 @@ describe("PACK_TOKEN gate (Codex adversarial cases)", () => {
   // WAIVER (P24, inline): the Fetch spec strips leading/trailing ASCII whitespace from
   // header values before the Worker sees them, so "S " arrives as "S" and authorizes.
   // The gate cannot observe the space; the caller still had to hold S, so nothing is
-  // bypassed. Kept verbatim as test.failing so a runtime change flips it loudly.
-  test.failing("10: trailing space is not trimmed into a match -> 401", async () => {
+  // bypassed. Kept verbatim as test.fails so a runtime change flips it loudly.
+  test.fails("10: trailing space is not trimmed into a match -> 401", async () => {
     const r = await call(S, "GET", "/digest/latest", [["X-Pack-Token", `${S} `]]);
     expect(r.status).toBe(401);
   });
 
   // Not a Codex case: a non-ASCII trailing space survives header normalization.
   test("10b: trailing no-break space -> 401", async () => {
-    const r = await call(S, "GET", "/digest/latest", [["X-Pack-Token", `${S} `]]);
+    const r = await call(S, "GET", "/digest/latest", [["X-Pack-Token", `${S}\u00a0`]]);
     expect(r.status).toBe(401);
   });
 
