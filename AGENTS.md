@@ -1,7 +1,8 @@
 # AGENTS.md — muckers
 
 Rules for any agent (or person) changing this repo. The shape and most of the wording come from Cliff Hall's
-`modelcontextprotocol/inspector` AGENTS.md, as the maintainer ruled on it on 2026-11-14. Where his way and ours
+`modelcontextprotocol/inspector` AGENTS.md (branch v2/main, commit d330df9617e44ec893bc1a53618662239342d433), as the
+maintainer ruled on it on 2026-11-14. Where his way and ours
 differ, **the source's way stands until there is a reason to depart**; every departure below says why.
 
 `CLAUDE.md` contains only `@./AGENTS.md`. Keep one copy of these rules: two copies are strictly worse than one,
