@@ -17,16 +17,7 @@
  * muckers toolkit — see HISTORY.md for why it's named after Edison's team.
  */
 
-import {
-  corsHeaders,
-  json,
-  unauthorized,
-  notFound,
-  notConfigured,
-  packTokenUsable,
-  tokenMatches,
-  Env,
-} from "./common";
+import { corsHeaders, json, unauthorized, notFound, notConfigured, packTokenUsable, tokenMatches, Env } from "./common";
 import {
   handleDigestRun,
   handleDigestLatest,
@@ -45,9 +36,13 @@ async function info(env: Env): Promise<Response> {
   let digestCount = 0;
   let proposalCount = 0;
   try {
-    const d = await env.DB.prepare(`SELECT COUNT(*) as n FROM digest_runs WHERE status = 'done'`).first<{ n: number }>();
+    const d = await env.DB.prepare(`SELECT COUNT(*) as n FROM digest_runs WHERE status = 'done'`).first<{
+      n: number;
+    }>();
     digestCount = d?.n ?? 0;
-    const p = await env.DB.prepare(`SELECT COUNT(*) as n FROM tool_proposals WHERE status = 'open' AND hit_count >= 3`).first<{ n: number }>();
+    const p = await env.DB.prepare(
+      `SELECT COUNT(*) as n FROM tool_proposals WHERE status = 'open' AND hit_count >= 3`,
+    ).first<{ n: number }>();
     proposalCount = p?.n ?? 0;
   } catch {
     /* DB may not be migrated yet */
@@ -60,12 +55,7 @@ async function info(env: Env): Promise<Response> {
     history: "See HISTORY.md for why this is named after Edison's team.",
     modules: {
       digest: {
-        paths: [
-          "POST /digest/run",
-          "GET /digest/latest",
-          "GET /digest/list",
-          "GET /digest/schema",
-        ],
+        paths: ["POST /digest/run", "GET /digest/latest", "GET /digest/list", "GET /digest/schema"],
         completed_runs: digestCount,
         analog: "The 1880 daily journal Edison's office staff kept of laboratory work.",
       },
@@ -102,8 +92,8 @@ export default {
     }
 
     // Public schema endpoints (no auth)
-    if (method === "GET" && path === "/digest/schema") return await handleDigestSchema(request);
-    if (method === "GET" && path === "/organizer/schema") return await handleOrganizerSchema(request);
+    if (method === "GET" && path === "/digest/schema") return await handleDigestSchema();
+    if (method === "GET" && path === "/organizer/schema") return await handleOrganizerSchema();
 
     if (!packTokenUsable(env.PACK_TOKEN)) return notConfigured();
     const token = request.headers.get("X-Pack-Token");
@@ -118,9 +108,7 @@ export default {
       if (method === "POST" && path === "/organizer/scan") return await handleOrganizerScan(request, env);
       if (method === "GET" && path === "/organizer/proposals") return await handleOrganizerProposals(request, env);
 
-      const proposalAction = path.match(
-        /^\/organizer\/proposals\/([a-f0-9-]+)\/(acknowledge|formalize|dismiss)$/,
-      );
+      const proposalAction = path.match(/^\/organizer\/proposals\/([a-f0-9-]+)\/(acknowledge|formalize|dismiss)$/);
       if (method === "POST" && proposalAction) {
         return await handleOrganizerAction(
           request,

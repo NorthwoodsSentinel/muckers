@@ -20,17 +20,6 @@
 
 import { json, Env } from "./common";
 
-interface ToolProposal {
-  id: string;
-  detected_at: string;
-  shape_signature: string;
-  shape_summary: string;
-  hit_count: number;
-  hit_run_ids: string[];
-  example_snippets: string[];
-  status: "open" | "acknowledged" | "formalized" | "dismissed";
-}
-
 const SCAN_SYSTEM_PROMPT = `You are the operator's tool-shape detector.
 
 You will be given the operator's digest archive — a series of daily digests describing what they worked on, what was open mid-flight, and patterns worth surfacing. Your job: identify TOOL SHAPES that appear across multiple digests. A "tool shape" is a kind of solution the operator builds or wishes for, named at a level of abstraction that lets you match it across different incidents.
@@ -85,9 +74,7 @@ async function scanDigestsWithAnthropic(
   apiKey: string,
 ): Promise<ScannerShape[]> {
   const packed = digests
-    .map(
-      (d) => `### digest_id=${d.id} (${d.started_at.slice(0, 10)})\n${d.digest_text}`,
-    )
+    .map((d) => `### digest_id=${d.id} (${d.started_at.slice(0, 10)})\n${d.digest_text}`)
     .join("\n\n");
 
   const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -125,10 +112,7 @@ async function scanDigestsWithAnthropic(
   return Array.isArray(parsed.shapes) ? parsed.shapes : [];
 }
 
-async function upsertProposal(
-  env: Env,
-  shape: ScannerShape,
-): Promise<{ created: boolean; hit_count: number }> {
+async function upsertProposal(env: Env, shape: ScannerShape): Promise<{ created: boolean; hit_count: number }> {
   const existing = await env.DB.prepare(
     `SELECT id, hit_count, hit_run_ids_json, example_snippets_json FROM tool_proposals WHERE shape_signature = ?`,
   )
@@ -158,12 +142,7 @@ async function upsertProposal(
     await env.DB.prepare(
       `UPDATE tool_proposals SET hit_count = ?, hit_run_ids_json = ?, example_snippets_json = ? WHERE id = ?`,
     )
-      .bind(
-        newHitCount,
-        JSON.stringify([...existingRuns]),
-        JSON.stringify(existingSnippets),
-        existing.id,
-      )
+      .bind(newHitCount, JSON.stringify([...existingRuns]), JSON.stringify(existingSnippets), existing.id)
       .run();
     return { created: false, hit_count: newHitCount };
   }
@@ -189,10 +168,7 @@ async function upsertProposal(
   return { created: true, hit_count: runs.length };
 }
 
-export async function handleOrganizerScan(
-  req: Request,
-  env: Env,
-): Promise<Response> {
+export async function handleOrganizerScan(req: Request, env: Env): Promise<Response> {
   if (!env.ANTHROPIC_API_KEY) {
     return json(
       {
@@ -251,10 +227,7 @@ export async function handleOrganizerScan(
   });
 }
 
-export async function handleOrganizerProposals(
-  req: Request,
-  env: Env,
-): Promise<Response> {
+export async function handleOrganizerProposals(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
   const status = url.searchParams.get("status") ?? "open";
   const minHits = parseInt(url.searchParams.get("min_hits") ?? "3", 10);
@@ -316,9 +289,7 @@ export async function handleOrganizerAction(
   const now = nowIso();
 
   if (action === "acknowledge") {
-    await env.DB.prepare(
-      `UPDATE tool_proposals SET status = 'acknowledged', acknowledged_at = ? WHERE id = ?`,
-    )
+    await env.DB.prepare(`UPDATE tool_proposals SET status = 'acknowledged', acknowledged_at = ? WHERE id = ?`)
       .bind(now, proposalId)
       .run();
   } else if (action === "formalize") {
@@ -331,9 +302,7 @@ export async function handleOrganizerAction(
       .bind(now, body.formalized_as, proposalId)
       .run();
   } else if (action === "dismiss") {
-    await env.DB.prepare(
-      `UPDATE tool_proposals SET status = 'dismissed', dismissed_at = ? WHERE id = ?`,
-    )
+    await env.DB.prepare(`UPDATE tool_proposals SET status = 'dismissed', dismissed_at = ? WHERE id = ?`)
       .bind(now, proposalId)
       .run();
   }
@@ -341,7 +310,7 @@ export async function handleOrganizerAction(
   return json({ ok: true, proposal_id: proposalId, action });
 }
 
-export async function handleOrganizerSchema(_req: Request): Promise<Response> {
+export async function handleOrganizerSchema(): Promise<Response> {
   return json({
     ok: true,
     endpoints: {
@@ -362,8 +331,7 @@ export async function handleOrganizerSchema(_req: Request): Promise<Response> {
       "POST /organizer/proposals/:id/dismiss": { returns: "marks proposal as not-worth-pursuing" },
     },
     rule_of_three: {
-      description:
-        "Proposals with hit_count >= 3 are surfaced by default. Below 3 require ?min_hits=N to retrieve.",
+      description: "Proposals with hit_count >= 3 are surfaced by default. Below 3 require ?min_hits=N to retrieve.",
       reasoning:
         "The operator's stated discipline (Wally call 2026-06-28 00:38): 'I don't make a tool unless I run into the same problem three times.' The organizer enforces that discipline by waiting until 3 occurrences accumulate before surfacing.",
     },
