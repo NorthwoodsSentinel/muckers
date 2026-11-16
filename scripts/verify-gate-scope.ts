@@ -8,6 +8,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
+import ts from "typescript";
 
 const root = resolve(import.meta.dir, "..");
 const run = (cmd: string, args: string[]) => {
@@ -21,16 +22,26 @@ const tracked = run("git", ["ls-files", "--cached", "--others", "--exclude-stand
 );
 if (!tracked.length) throw new Error("verify-gate-scope: found no .ts files at all; the check itself is broken");
 
-// 1. typecheck scope. Run the repo's own tsc directly (not through npx, whose behavior varies by environment),
-// and treat an empty listing as a broken check rather than as "nothing typechecked".
-const tsc = resolve(root, "node_modules/.bin/tsc");
-if (!existsSync(tsc)) throw new Error(`verify-gate-scope: ${tsc} not found; run bun install`);
+// 1. typecheck scope. Read each project's file list through the TypeScript API in-process (no subprocess, so
+// the result cannot depend on how a launcher behaves in a given shell or sandbox), and treat an empty list as a
+// broken check rather than as "nothing typechecked".
 const typed = new Set<string>();
 for (const project of ["tsconfig.json", "tsconfig.tools.json"]) {
-  const listed = run(tsc, ["-p", project, "--listFilesOnly"]);
-  if (!listed.length)
-    throw new Error(`verify-gate-scope: tsc -p ${project} listed no files; the check itself is broken`);
-  for (const f of listed) typed.add(relative(root, f));
+  const parsed = ts.getParsedCommandLineOfConfigFile(
+    resolve(root, project),
+    {},
+    {
+      ...ts.sys,
+      onUnRecoverableConfigFileDiagnostic: (d) => {
+        throw new Error(`verify-gate-scope: ${project}: ${ts.flattenDiagnosticMessageText(d.messageText, "\n")}`);
+      },
+    },
+  );
+  if (!parsed || parsed.errors.length)
+    throw new Error(`verify-gate-scope: could not parse ${project}; the check itself is broken`);
+  if (!parsed.fileNames.length)
+    throw new Error(`verify-gate-scope: ${project} lists no files; the check itself is broken`);
+  for (const f of parsed.fileNames) typed.add(relative(root, f));
 }
 const untyped = tracked.filter((f) => !typed.has(f));
 
